@@ -511,7 +511,56 @@ def check_system_status() -> None:
         print(f"Error fetching nodes status: {e}")
 
 
+def export_definitions(file_path: str) -> None:
+    """Export RabbitMQ definitions to a JSON file."""
+    print(f"Exporting definitions to {file_path}...")
+    url = f"{RABBIT_URL}/api/definitions"
+    if not url.startswith("http"):
+        return
+
+    req = urllib.request.Request(url, headers=HEADERS)  # noqa: S310
+    try:
+        with urllib.request.urlopen(req) as res:  # noqa: S310
+            definitions = json.loads(res.read().decode("utf-8"))
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(definitions, f, indent=4)
+            print("Definitions exported successfully.")
+    except Exception as e:
+        print(f"Error exporting definitions: {e}")
+
+
+def import_definitions(file_path: str) -> None:
+    """Import RabbitMQ definitions from a JSON file."""
+    print(f"Importing definitions from {file_path}...")
+    if not os.path.exists(file_path):
+        print(f"Error: File {file_path} not found.")
+        return
+
+    url = f"{RABBIT_URL}/api/definitions"
+    if not url.startswith("http"):
+        return
+
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            definitions = json.load(f)
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(definitions).encode("utf-8"),
+            headers=HEADERS,
+            method="POST",
+        )  # noqa: S310
+        with urllib.request.urlopen(req) as res:  # noqa: S310
+            if res.status in (200, 201, 204):
+                print("Definitions imported successfully.")
+            else:
+                print(f"Failed to import: {res.status}")
+    except Exception as e:
+        print(f"Error importing definitions: {e}")
+
+
 if __name__ == "__main__":
+    import os
     parser = argparse.ArgumentParser(description="RabbitMQ Fast Management Script")
     parser.add_argument(
         "action",
@@ -525,6 +574,8 @@ if __name__ == "__main__":
             "status",
             "queue-status",
             "queue-summary",
+            "export-defs",
+            "import-defs",
         ],
         help="Action to perform",
     )
@@ -533,6 +584,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--node", type=str, default="rabbit@rabbit2", help="Target node for grow/shrink"
+    )
+    parser.add_argument(
+        "--file", type=str, default="definitions.json", help="File path for export/import"
     )
     args = parser.parse_args()
 
@@ -554,3 +608,7 @@ if __name__ == "__main__":
         check_queue_details(args.n)
     elif args.action == "queue-summary":
         check_queue_summary()
+    elif args.action == "export-defs":
+        export_definitions(args.file)
+    elif args.action == "import-defs":
+        import_definitions(args.file)

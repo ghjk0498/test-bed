@@ -92,3 +92,35 @@ lint:
 	mypy .
 	black .
 	pytest
+
+# 백업 및 복구 (Definitions)
+# 사용법: make backup-defs FILE=my_defs.json
+backup-defs:
+	@powershell -Command "$$f = if ('$(FILE)') { '$(FILE)' } else { 'definitions_backup.json' }; \
+		python src/scripts/manage_queues.py export-defs --file $$f"
+
+# 사용법: make restore-defs FILE=my_defs.json
+restore-defs:
+	@powershell -Command "$$f = if ('$(FILE)') { '$(FILE)' } else { 'definitions_backup.json' }; \
+		python src/scripts/manage_queues.py import-defs --file $$f"
+
+# 백업 및 복구 (Data - Full Volume)
+# 주의: 이 작업은 컨테이너를 일시 중지합니다.
+# 사용법: make backup-data FILE=backup.zip
+backup-data:
+	docker-compose stop
+	@powershell -Command "$$f = if ('$(FILE)') { '$(FILE)' } else { 'rabbitmq_data_backup.zip' }; \
+		if (Test-Path $$f) { Remove-Item $$f }; \
+		Compress-Archive -Path ./data -DestinationPath $$f; \
+		Write-Host 'Data backup completed: ' $$f"
+	docker-compose start
+
+# 사용법: make restore-data FILE=backup.zip
+restore-data:
+	docker-compose down
+	@powershell -Command "$$f = if ('$(FILE)') { '$(FILE)' } else { 'rabbitmq_data_backup.zip' }; \
+		if (!(Test-Path $$f)) { Write-Error 'Backup file not found'; exit 1 }; \
+		if (Test-Path ./data) { Remove-Item -Recurse -Force ./data }; \
+		Expand-Archive -Path $$f -DestinationPath .; \
+		Write-Host 'Data restored from ' $$f"
+	docker-compose up -d
