@@ -595,6 +595,52 @@ def import_definitions(file_path: str) -> None:
         print(f"Error importing definitions: {e}")
 
 
+def test_connection() -> None:
+    """Perform a comprehensive connectivity and permission test."""
+    print(f"Testing connectivity to: {RABBIT_URL}")
+    print("-" * 50)
+
+    # 1. Authentication and Identity
+    whoami_url = f"{RABBIT_URL}/api/whoami"
+    success = True
+    try:
+        req = urllib.request.Request(whoami_url, headers=HEADERS)  # noqa: S310
+        with urllib.request.urlopen(req) as res:  # noqa: S310
+            user_data = json.loads(res.read().decode("utf-8"))
+            user_name = user_data.get("name", "Unknown")
+            tags = user_data.get("tags", [])
+            print(f"[OK] Authentication: Connected as '{user_name}'")
+            print(f"     Tags: {', '.join(tags)}")
+            if "administrator" not in tags:
+                print("     [!] Warning: User is not an administrator. Some actions may fail.")
+    except Exception as e:
+        print(f"[FAIL] Authentication: {e}")
+        success = False
+
+    # 2. Version and API Compatibility
+    version = get_rabbitmq_version()
+    if version:
+        print(f"[OK] RabbitMQ Version: {version}")
+        if is_api_supported(version):
+            print("     [OK] API: Quorum Replica Management (3.13+) is supported.")
+        else:
+            print("     [!] API: Quorum Replica Management requires RabbitMQ 3.13+.")
+    else:
+        print("[FAIL] RabbitMQ Version: Could not retrieve version info.")
+        success = False
+
+    # 3. Environment Summary
+    env_type = "Local (Docker-aware)" if is_local() else "Remote"
+    print(f"[INFO] Environment: {env_type}")
+    print(f"[INFO] TLS/SSL: {'Enabled' if RMQ_USE_SSL else 'Disabled'}")
+
+    print("-" * 50)
+    if success:
+        print("Connection test COMPLETED successfully.")
+    else:
+        print("Connection test FAILED.")
+
+
 if __name__ == "__main__":
     import os
 
@@ -613,6 +659,7 @@ if __name__ == "__main__":
             "queue-summary",
             "export-defs",
             "import-defs",
+            "test-connection",
         ],
         help="Action to perform",
     )
@@ -652,3 +699,5 @@ if __name__ == "__main__":
         export_definitions(args.file)
     elif args.action == "import-defs":
         import_definitions(args.file)
+    elif args.action == "test-connection":
+        test_connection()
