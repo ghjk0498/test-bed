@@ -12,6 +12,7 @@ services:
       - RABBITMQ_ERLANG_COOKIE=secret_cookie_value
     volumes:
       - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./data/rabbit1:/var/lib/rabbitmq:rw
     networks:
       - rabbit-net
 
@@ -26,6 +27,7 @@ services:
       - RABBITMQ_ERLANG_COOKIE=secret_cookie_value
     volumes:
       - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./data/rabbit2:/var/lib/rabbitmq:rw
     networks:
       - rabbit-net
 
@@ -40,6 +42,7 @@ services:
       - RABBITMQ_ERLANG_COOKIE=secret_cookie_value
     volumes:
       - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./data/rabbit3:/var/lib/rabbitmq:rw
     networks:
       - rabbit-net
 

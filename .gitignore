@@ -158,3 +158,4 @@ cython_debug/
 .gemini/
 GEMINI_*.md
 MEMORY.md
+/data/

@@ -233,6 +233,7 @@ def grow_members(node: str) -> None:
             with urllib.request.urlopen(req) as res:  # noqa: S310
                 if res.status in (200, 201, 204):
                     print(f"Successfully triggered grow on node {node} via API.")
+                    print("Note: New members added. Run 'make rebalance' to distribute leaders.")
                 else:
                     print(f"Failed to grow via API: {res.status}")
         except Exception as e:
@@ -252,6 +253,7 @@ def grow_members(node: str) -> None:
                 x in output for x in ["error", "failed", "unable", "invalid"]
             ):
                 print(f"Successfully executed grow on node {node} via CLI.")
+                print("Note: New members added. Run 'make rebalance' to distribute leaders.")
             else:
                 error_msg = result.stderr or result.stdout or "Unknown error"
                 print(f"Failed to grow on node {node} via CLI:\n{error_msg}")
