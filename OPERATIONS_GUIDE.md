@@ -19,7 +19,11 @@
   export RMQ_USER=admin
   export RMQ_PASSWORD=yourpassword
   ```
-- **실행**: 설정 후 `python src/scripts/manage_queues.py status`를 실행하여 연결을 확인합니다.
+- **방법 (.env 파일)**:
+  1. `.env.example` 파일을 `.env`로 복사합니다.
+  2. `.env` 파일 내의 값을 운영 환경에 맞게 수정합니다.
+  3. 스크립트 실행 시 자동으로 `.env` 파일을 로드합니다.
+- **실행**: 설정 후 `python src/scripts/manage_queues.py test-connection`을 실행하여 연결을 확인합니다.
 
 ---
 
