@@ -520,10 +520,10 @@ def check_system_status() -> None:
         with urllib.request.urlopen(req_nodes) as res:  # noqa: S310
             nodes = json.loads(res.read().decode("utf-8"))
             print(
-                f"{'Node Name':<20} | {'Status':<10} | {'Alarms':<15} | "
-                f"{'Memory (MB)':<15} | {'Disk Free (MB)':<15}"
+                f"{'Node Name':<20} | {'Status':<8} | {'Alarms':<10} | "
+                f"{'Memory (MB/Limit)':<20} | {'Disk (MB)':<10} | {'FD Usage':<10} | {'Proc Usage'}"
             )
-            print("-" * 85)
+            print("-" * 110)
             for node in nodes:
                 name = node.get("name", "Unknown")
                 running = node.get("running", False)
@@ -533,15 +533,27 @@ def check_system_status() -> None:
                 alarms = node.get("alarms", [])
                 alarms_str = ", ".join(alarms) if alarms else "OK"
 
-                # Memory (convert bytes to MB)
+                # Memory
                 mem_used = node.get("mem_used", 0) / (1024 * 1024)
+                mem_limit = node.get("mem_limit", 0) / (1024 * 1024)
+                mem_str = f"{mem_used:.0f} / {mem_limit:.0f}"
 
-                # Disk Free (convert bytes to MB)
+                # Disk Free
                 disk_free = node.get("disk_free", 0) / (1024 * 1024)
 
+                # FD Usage
+                fd_used = node.get("fd_used", 0)
+                fd_total = node.get("fd_total", 0)
+                fd_str = f"{fd_used}/{fd_total}"
+
+                # Proc Usage
+                proc_used = node.get("proc_used", 0)
+                proc_total = node.get("proc_total", 0)
+                proc_str = f"{proc_used}/{proc_total}"
+
                 print(
-                    f"{name:<20} | {status:<10} | {alarms_str:<15} | "
-                    f"{mem_used:<15.2f} | {disk_free:<15.2f}"
+                    f"{name:<20} | {status:<8} | {alarms_str:<10} | "
+                    f"{mem_str:<20} | {disk_free:<10.0f} | {fd_str:<10} | {proc_str}"
                 )
     except Exception as e:
         print(f"Error fetching nodes status: {e}")
