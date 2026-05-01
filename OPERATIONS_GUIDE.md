@@ -108,3 +108,25 @@ API로 확인되지 않는 깊은 문제는 운영 서버에 직접 접속하여
 ### 5.3. 큐 리플리카 상세 진단
 - **특정 큐의 상태 상세 조회**: `sudo rabbitmq-queues quorum_status <queue_name>`
   - 이 명령은 쿼럼 큐의 Raft 로그 상태, 컨센서스 참여 노드 정보를 상세히 보여줍니다.
+
+---
+
+## 부록: 운영 효율화 팁 (Efficiency Tips)
+
+매번 긴 명령어를 입력하는 대신 다음 별칭(Alias) 설정을 권장합니다.
+
+### Linux (Bash/Zsh)
+`~/.bashrc` 또는 `~/.zshrc`에 추가:
+```bash
+# RabbitMQ 관리 도구 별칭
+alias rmq='python3 /path/to/src/scripts/manage_queues.py'
+alias rmq-status='rmq status'
+alias rmq-test='rmq test-connection'
+```
+
+### Windows (PowerShell)
+`$PROFILE`에 추가:
+```powershell
+function rmq { python src/scripts/manage_queues.py @args }
+function rmq-status { rmq status }
+```
