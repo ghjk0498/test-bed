@@ -12,8 +12,10 @@ class RabbitMQClient:
         port: int = 15672,
         user: str = "guest",
         password: str = "guest",  # noqa: S107
+        use_ssl: bool = False,
     ):
-        self.base_url = f"http://{host}:{port}/api"
+        protocol = "https" if use_ssl else "http"
+        self.base_url = f"{protocol}://{host}:{port}/api"
         auth_str = f"{user}:{password}"
         self.auth_header = "Basic " + base64.b64encode(auth_str.encode()).decode()
 

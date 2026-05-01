@@ -1,14 +1,25 @@
 import argparse
 import base64
 import json
+import os
 import subprocess
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-# RabbitMQ 연결 정보 (환경에 맞게 수정)
-RABBIT_URL = "http://localhost:15672"
-AUTH_HEADER = "Basic " + base64.b64encode(b"guest:guest").decode("utf-8")
+# ruff: noqa: E501, S310
+
+# RabbitMQ 연결 정보 (환경 변수 또는 기본값 사용)
+RMQ_HOST = os.getenv("RMQ_HOST", "localhost")
+RMQ_PORT = os.getenv("RMQ_PORT", "15672")
+RMQ_USER = os.getenv("RMQ_USER", "guest")
+RMQ_PASS = os.getenv("RMQ_PASSWORD", "guest")
+RMQ_USE_SSL = os.getenv("RMQ_USE_SSL", "false").lower() == "true"
+
+PROTOCOL = "https" if RMQ_USE_SSL else "http"
+RABBIT_URL = f"{PROTOCOL}://{RMQ_HOST}:{RMQ_PORT}"
+AUTH_STR = f"{RMQ_USER}:{RMQ_PASS}"
+AUTH_HEADER = "Basic " + base64.b64encode(AUTH_STR.encode("utf-8")).decode("utf-8")
 HEADERS = {"Authorization": AUTH_HEADER, "Content-Type": "application/json"}
 
 
@@ -215,6 +226,11 @@ def rebalance_queues() -> None:
         print(f"Error during rebalancing: {e}")
 
 
+def is_local() -> bool:
+    """Check if we are targeting a local RabbitMQ instance."""
+    return RMQ_HOST in ("localhost", "127.0.0.1")
+
+
 def grow_members(node: str) -> None:
     """Add a node as a member to all quorum queues (Hybrid: API or CLI)."""
     # 1. Validate node existence first
@@ -233,12 +249,14 @@ def grow_members(node: str) -> None:
             with urllib.request.urlopen(req) as res:  # noqa: S310
                 if res.status in (200, 201, 204):
                     print(f"Successfully triggered grow on node {node} via API.")
-                    print("Note: New members added. Run 'make rebalance' to distribute leaders.")
+                    print(
+                        "Note: New members added. Run 'rebalance' to distribute leaders."
+                    )  # noqa: E501
                 else:
                     print(f"Failed to grow via API: {res.status}")
         except Exception as e:
             print(f"Error during API grow: {e}")
-    else:
+    elif is_local():
         print(f"Falling back to CLI for 'grow' (RabbitMQ {version or 'unknown'})")
         try:
             # Note: Using rabbit1 as the entry point for docker exec
@@ -253,12 +271,19 @@ def grow_members(node: str) -> None:
                 x in output for x in ["error", "failed", "unable", "invalid"]
             ):
                 print(f"Successfully executed grow on node {node} via CLI.")
-                print("Note: New members added. Run 'make rebalance' to distribute leaders.")
+                print("Note: New members added. Run 'rebalance' to distribute leaders.")
             else:
                 error_msg = result.stderr or result.stdout or "Unknown error"
                 print(f"Failed to grow on node {node} via CLI:\n{error_msg}")
         except Exception as e:
             print(f"Error executing CLI grow: {e}")
+    else:
+        print("Error: CLI fallback is only supported for local environments.")
+        print(
+            f"Target host '{RMQ_HOST}' is remote and RabbitMQ version '{version}' "
+            "does not support Grow API."
+        )
+        print("Please upgrade RabbitMQ to >= 3.13 for remote Grow/Shrink support.")
 
 
 def shrink_members(node: str) -> None:
@@ -285,7 +310,7 @@ def shrink_members(node: str) -> None:
                     print(f"Failed to shrink via API: {res.status}")
         except Exception as e:
             print(f"Error during API shrink: {e}")
-    else:
+    elif is_local():
         print(f"Falling back to CLI for 'shrink' (RabbitMQ {version or 'unknown'})")
         try:
             cmd = ["docker", "exec", "rabbit1", "rabbitmq-queues", "shrink", node]
@@ -303,6 +328,15 @@ def shrink_members(node: str) -> None:
                 print(f"Failed to shrink on node {node} via CLI:\n{error_msg}")
         except Exception as e:
             print(f"Error executing CLI shrink: {e}")
+    else:
+        print(
+            "Error: CLI fallback is only supported for local environments (localhost)."
+        )
+        print(
+            f"Target host '{RMQ_HOST}' is remote and RabbitMQ version '{version}' "
+            "does not support Shrink API."
+        )  # noqa: E501
+        print("Please upgrade RabbitMQ to >= 3.13 for remote Grow/Shrink support.")
 
 
 def check_queue_distribution() -> None:
@@ -393,12 +427,12 @@ def check_queue_summary() -> None:
                 states[q_state] = states.get(q_state, 0) + 1
 
                 # Replica Count (Quorum specific)
-                # For quorum queues, members are in 'members' or 'synchronised_slave_nodes' + leader
+                # For quorum queues, members are in 'members' + leader
                 members = q.get("members", [])
                 r_count = len(members)
                 if r_count > 0:
                     replica_counts[r_count] = replica_counts.get(r_count, 0) + 1
-                    # Risk assessment: Quorum queues should have at least 3 nodes and ideally odd number
+                    # Risk assessment: Quorum queues should have >= 3 nodes and odd count
                     if r_count < 3 or r_count % 2 == 0:
                         at_risk_queues += 1
 
@@ -426,17 +460,19 @@ def check_queue_summary() -> None:
                     if rc % 2 == 0:
                         risk_note += " (Even Number - Not Optimal)"
                     print(f"  - {rc} replicas: {count} queues{risk_note}")
-                
+
                 if at_risk_queues > 0:
-                    print(f"\n  [!] WARNING: {at_risk_queues} queues have sub-optimal replica counts.")
+                    print(
+                        f"\n  [!] WARNING: {at_risk_queues} queues have sub-optimal replica counts."
+                    )
 
             print("\nMessage Totals:")
             print(f"  - Total      : {total_msgs}")
             print(f"  - Ready      : {total_ready}")
             print(f"  - Unack      : {total_unack}")
-            
+
             if total_queues > 0:
-                print(f"\nAverages:")
+                print("\nAverages:")
                 print(f"  - Msgs/Queue : {total_msgs / total_queues:.2f}")
 
     except Exception as e:
@@ -561,6 +597,7 @@ def import_definitions(file_path: str) -> None:
 
 if __name__ == "__main__":
     import os
+
     parser = argparse.ArgumentParser(description="RabbitMQ Fast Management Script")
     parser.add_argument(
         "action",
@@ -586,7 +623,10 @@ if __name__ == "__main__":
         "--node", type=str, default="rabbit@rabbit2", help="Target node for grow/shrink"
     )
     parser.add_argument(
-        "--file", type=str, default="definitions.json", help="File path for export/import"
+        "--file",
+        type=str,
+        default="definitions.json",
+        help="File path for export/import",
     )
     args = parser.parse_args()
 
