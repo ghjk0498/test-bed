@@ -9,6 +9,24 @@ from typing import Any
 
 # ruff: noqa: E501, S310
 
+
+def load_env_file(file_path: str = ".env") -> None:
+    """Load environment variables from a .env file."""
+    if not os.path.exists(file_path):
+        return
+    with open(file_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key.strip(), value.strip())
+
+
+# .env 파일 로드 (환경 변수가 이미 설정되어 있으면 덮어쓰지 않음)
+load_env_file()
+
 # RabbitMQ 연결 정보 (환경 변수 또는 기본값 사용)
 RMQ_HOST = os.getenv("RMQ_HOST", "localhost")
 RMQ_PORT = os.getenv("RMQ_PORT", "15672")
