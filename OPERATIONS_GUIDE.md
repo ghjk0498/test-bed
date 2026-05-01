@@ -1,74 +1,110 @@
 # RabbitMQ 운영 및 장애 대응 가이드 (Runbook)
 
-이 가이드는 클러스터 이상 징후 발생 시 진단 방법과 조치 절차를 제공합니다.
+이 가이드는 클러스터 이상 징후 발생 시 진단 방법과 조치 절차를 제공합니다. 로컬 테스트 환경과 원격 운영 환경 모두를 지원합니다.
+
+---
+
+## 0. 원격 운영 환경 설정 (Remote Setup)
+운영 서버나 별도의 클러스터를 관리하려면 다음 환경 변수를 설정하십시오.
+
+- **방법 (PowerShell)**:
+  ```powershell
+  $env:RMQ_HOST = "10.0.0.5"
+  $env:RMQ_USER = "admin"
+  $env:RMQ_PASSWORD = "yourpassword"
+  ```
+- **방법 (Linux/Bash)**:
+  ```bash
+  export RMQ_HOST=10.0.0.5
+  export RMQ_USER=admin
+  export RMQ_PASSWORD=yourpassword
+  ```
+- **실행**: 설정 후 `python src/scripts/manage_queues.py status`를 실행하여 연결을 확인합니다.
 
 ---
 
 ## 1. 정기 점검 및 모니터링
 정상 상태를 유지하기 위해 다음 명령어로 클러스터 건강 상태를 수시로 확인합니다.
 
-- **명령어**: `make status`
-  - **확인 사항**: 모든 노드가 `Running` 상태인지, `Alarms`가 `OK`인지 확인합니다.
-- **명령어**: `make queue-summary`
-  - **확인 사항**: `At Risk` 큐(복제본 2개 이하)가 있는지, 큐 상태가 `running`이 아닌 것이 있는지 확인합니다.
-- **명령어**: `make dist`
-  - **확인 사항**: 특정 노드에 리더가 쏠려 있지 않은지 확인합니다. (노드별 차이가 1~2개 이내가 이상적)
+| 점검 항목 | 로컬/테스트 (Makefile) | 운영 환경 (직접 실행) |
+| :--- | :--- | :--- |
+| **클러스터 상태** | `make status` | `python src/scripts/manage_queues.py status` |
+| **큐 안전성 요약** | `make queue-summary` | `python src/scripts/manage_queues.py queue-summary` |
+| **리더 분산 확인** | `make dist` | `python src/scripts/manage_queues.py dist` |
 
 ---
 
 ## 2. 상황별 장애 대응 절차
 
 ### 상황 A: 특정 노드에 리더가 쏠려 있는 경우 (불균형)
-- **증상**: 특정 노드의 CPU/메모리 사용량이 타 노드보다 월등히 높음.
-- **진단**: `make dist` 실행 시 리더 수의 표준 편차가 큼.
 - **조치**: 
-  1. `make rebalance`를 실행하여 리더를 자동으로 분산시킵니다.
-  2. 분산 후 다시 `make dist`로 결과를 확인합니다.
+  1. **로컬**: `make rebalance` 실행.
+  2. **운영**: `python src/scripts/manage_queues.py rebalance` 실행.
+  3. 분산 후 다시 `dist` 명령으로 결과를 확인합니다.
 
 ### 상황 B: 노드 장애 (Node Down) 발생 시
-- **증상**: 서비스 지연 발생 또는 특정 노드 접속 불가.
-- **진단**: `make status` 실행 시 특정 노드가 `Down`으로 표시됨.
+- **진단**: `status` 실행 시 특정 노드가 `Down`으로 표시됨.
 - **조치**:
-  1. 즉시 `make queue-summary`를 확인하여 쿼럼이 유지되고 있는지(서비스 가용성) 확인합니다.
-  2. 장애 노드 복구 후, 해당 노드가 클러스터에 합류했는지 `make status`로 확인합니다.
-  3. **중요**: 노드 복구 후 리더는 자동으로 돌아오지 않으므로, 반드시 `make rebalance`를 수행합니다.
+  1. **인프라 복구**:
+     - **로컬**: `make start-node N=<노드번호>`
+     - **운영**: 해당 서버 접속 후 `sudo systemctl start rabbitmq-server`
+  2. **상태 확인**: 노드가 클러스터에 합류했는지 `status`로 확인합니다.
+  3. **후속 조치**: 반드시 리더 리밸런싱(`rebalance`)을 수행합니다.
 
 ### 상황 C: 큐 복제본(Replica) 부족 (At Risk)
-- **증상**: 데이터 유실 위험 증가 (노드 하나만 더 죽어도 큐 중단).
-- **진단**: `make queue-summary`에서 `At Risk` 경고 확인.
+- **진단**: `queue-summary`에서 `At Risk` 경고 확인.
 - **조치**:
-  1. 부족한 노드에 멤버를 추가합니다: `make grow NODE=rabbit@<대상노드명>`
-  2. 추가 완료 후 `make queue-summary`로 안전 상태를 재점검합니다.
-  3. 멤버 구성 변경 후에는 리더 리밸런싱(`make rebalance`)을 수행하는 것이 좋습니다.
+  1. **멤버 추가**:
+     - **로컬**: `make grow NODE=rabbit@<대상노드>`
+     - **운영**: `python src/scripts/manage_queues.py grow --node rabbit@<대상노드>`
+     - *(참고: 운영 환경은 RabbitMQ 3.13+ API가 필요합니다. 구버전은 서버에서 직접 CLI 실행)*
 
 ### 상황 D: 리소스 알람 (Memory/Disk Alarm)
-- **증상**: 모든 퍼블리셔(Producer)의 메시지 전송이 중단됨(Blocked).
-- **진단**: `make status`에서 특정 노드의 `Alarms`에 `Memory` 또는 `Disk` 표시.
+- **진단**: `status`에서 특정 노드의 `Alarms`에 `Memory` 또는 `Disk` 표시.
 - **조치**:
-  1. **임시**: 컨슈머(Consumer) 수를 늘려 큐에 쌓인 메시지를 빠르게 소비하여 메모리를 확보합니다.
-  2. **장기**: 메시지 보관 주기를 검토하거나 디스크 용량을 증설합니다.
-  3. **확인**: 알람이 사라지면 퍼블리셔가 자동으로 재개되는지 확인합니다.
+  1. **임시**: 컨슈머(Consumer) 수를 늘려 큐 적체를 해소합니다.
+  2. **운영 서버**: `rabbitmqctl list_queues name memory` 등으로 메모리 점유가 높은 큐를 특정합니다.
+  3. 알람 해제 후 퍼블리셔가 자동으로 `Blocked` 상태에서 풀리는지 확인합니다.
 
 ---
 
 ## 3. 예방을 위한 황금률 (Golden Rules)
-1. **홀수 복제본 유지**: 쿼럼 큐는 항상 3, 5, 7개 등 홀수의 복제본을 유지하는 것이 쿼럼 결정에 유리합니다.
-2. **복구 후 리밸런싱**: 인프라 작업(재시작, 복구) 후에는 반드시 `make rebalance`를 습관화합니다.
-3. **리소스 임계치 모니터링**: 메모리/디스크 사용량이 70%를 넘지 않도록 관리합니다.
+1. **홀수 복제본 유지**: 쿼럼 큐는 항상 3, 5, 7개 등 홀수 복제본을 유지하십시오.
+2. **복구 후 리밸런싱**: 노드 재시작이나 복구 후에는 반드시 `rebalance`를 수행하십시오.
+3. **환경 변수 관리**: 운영 환경 접속 정보를 담은 `.env` 파일을 로컬에 저장할 경우 절대 Git에 커밋하지 마십시오.
 
 ---
 
 ## 4. 백업 및 복구 절차
 
 ### 4.1. 정의(Definitions) 백업 및 복구
-- **목적**: 큐, 익스체인지, 사용자 등 클러스터 구조 백업. (메시지 제외)
-- **백업**: `make backup-defs FILE=backup.json`
-- **복구**: `make restore-defs FILE=backup.json`
-- **특징**: 서비스 중단 없이 실시간으로 수행 가능.
+- **로컬**: `make backup-defs FILE=backup.json`
+- **운영**: `python src/scripts/manage_queues.py export-defs --file backup.json`
 
 ### 4.2. 전체 데이터(Full Data) 백업 및 복구
-- **목적**: 메시지를 포함한 전체 데이터 상태 백업.
-- **백업**: `make backup-data FILE=backup.zip`
-- **복구**: `make restore-data FILE=backup.zip`
-- **주의**: 이 작업은 컨테이너를 일시 중지하므로 점검 시간에 수행해야 합니다.
-- **핵심**: 복구 시 노드 이름(`RABBITMQ_NODENAME`)이 동일해야 Quorum Queue 데이터를 정상적으로 인식합니다.
+- **주의**: 이 작업은 컨테이너 또는 서비스를 일시 중지해야 합니다.
+- **로컬**: `make backup-data` (볼륨 압축)
+- **운영**: 
+  1. 서비스 중지: `sudo systemctl stop rabbitmq-server`
+  2. Mnesia 데이터 디렉토리(`/var/lib/rabbitmq/mnesia`) 백업.
+  3. 서비스 재개: `sudo systemctl start rabbitmq-server`
+
+---
+
+## 5. 운영 서버 전용 진단 도구 (Production Diagnostics)
+
+API로 확인되지 않는 깊은 문제는 운영 서버에 직접 접속하여 다음 도구를 사용하십시오.
+
+### 5.1. 로그 확인 (Logs)
+- **위치**: `/var/log/rabbitmq/rabbit@<hostname>.log`
+- **실시간 확인**: `tail -f /var/log/rabbitmq/rabbit@<hostname>.log`
+- **에러 집중 확인**: `grep "ERROR" /var/log/rabbitmq/rabbit@<hostname>.log`
+
+### 5.2. 고급 진단 (Diagnostics)
+- **클러스터 노드 간 연결 확인**: `sudo rabbitmq-diagnostics check_port_connectivity`
+- **노드 리소스 상세 리포트**: `sudo rabbitmq-diagnostics observer` (또는 `top` 형식의 `sudo rabbitmq-diagnostics runtime_thread_stats`)
+- **Erlang VM 상태 확인**: `sudo rabbitmq-diagnostics memory_breakdown`
+
+### 5.3. 큐 리플리카 상세 진단
+- **특정 큐의 상태 상세 조회**: `sudo rabbitmq-queues quorum_status <queue_name>`
+  - 이 명령은 쿼럼 큐의 Raft 로그 상태, 컨센서스 참여 노드 정보를 상세히 보여줍니다.
