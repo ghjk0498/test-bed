@@ -55,6 +55,27 @@ queue-summary:
 create-queues: create
 delete-queues: delete
 
+# 장애 주입 (Fault Injection)
+# 사용법: make stop-node N=2
+stop-node:
+	docker stop rabbit$(N)
+
+start-node:
+	docker start rabbit$(N)
+
+restart-node:
+	docker restart rabbit$(N)
+
+# 네트워크 격리 (Partition) - 수동 네트워크 이름 찾기 포함
+# PowerShell 환경 대응
+partition-node:
+	@powershell -Command "$$net = (docker network ls --filter name=rabbit-net --format '{{.Name}}'); \
+		docker network disconnect $$net rabbit$(N)"
+
+rejoin-node:
+	@powershell -Command "$$net = (docker network ls --filter name=rabbit-net --format '{{.Name}}'); \
+		docker network connect $$net rabbit$(N)"
+
 # 쿼럼 큐 멤버 일괄 추가 (Grow)
 # 사용법: make grow NODE=rabbit@rabbit2
 grow:
