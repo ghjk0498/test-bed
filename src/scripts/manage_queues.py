@@ -516,6 +516,7 @@ def check_system_status() -> None:
     # Fetch individual node statuses
     nodes_url = f"{RABBIT_URL}/api/nodes"
     req_nodes = urllib.request.Request(nodes_url, headers=HEADERS)  # noqa: S310
+    active_alarms: dict[str, list[str]] = {}
     try:
         with urllib.request.urlopen(req_nodes) as res:  # noqa: S310
             nodes = json.loads(res.read().decode("utf-8"))
@@ -531,6 +532,8 @@ def check_system_status() -> None:
 
                 # Check alarms
                 alarms = node.get("alarms", [])
+                if alarms:
+                    active_alarms[name] = alarms
                 alarms_str = ", ".join(alarms) if alarms else "OK"
 
                 # Memory
@@ -551,10 +554,22 @@ def check_system_status() -> None:
                 proc_total = node.get("proc_total", 0)
                 proc_str = f"{proc_used}/{proc_total}"
 
+                # Highlight alarms in the table
+                display_alarms = f"[!] {alarms_str}" if alarms else alarms_str
+
                 print(
-                    f"{name:<20} | {status:<8} | {alarms_str:<10} | "
+                    f"{name:<20} | {status:<8} | {display_alarms:<10} | "
                     f"{mem_str:<20} | {disk_free:<10.0f} | {fd_str:<10} | {proc_str}"
                 )
+
+            # Print active alarms summary
+            if active_alarms:
+                print("\n" + "!" * 50)
+                print("!!! ACTIVE ALARMS DETECTED !!!")
+                for node_name, alarms in active_alarms.items():
+                    print(f"  - Node {node_name}: {', '.join(alarms)}")
+                print("!" * 50)
+
     except Exception as e:
         print(f"Error fetching nodes status: {e}")
 
