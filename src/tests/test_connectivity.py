@@ -134,5 +134,41 @@ class TestRabbitMQClientConnectivity(unittest.TestCase):
         self.assertIn("ACTIVE ALARMS DETECTED", output)
         self.assertIn("Node rabbit@node1: memory", output)
 
+    @patch("urllib.request.urlopen")
+    @patch("subprocess.run")
+    @patch.dict("os.environ", {"RMQ_HOST": "10.0.0.5"})
+    def test_grow_members_remote_no_cli_fallback(self, mock_run, mock_urlopen):
+        import json
+        import io
+        from unittest.mock import MagicMock
+        from contextlib import redirect_stdout
+        import importlib
+        import src.scripts.manage_queues as manage_queues
+        importlib.reload(manage_queues)
+        
+        # 1. Mocking /api/nodes (target node exists)
+        res1 = MagicMock()
+        res1.__enter__.return_value = res1
+        res1.read.return_value = json.dumps([{"name": "rabbit@remote1"}]).encode()
+        res1.status = 200
+        
+        # 2. Mocking /api/overview (version 3.12.0 - API not supported)
+        res2 = MagicMock()
+        res2.__enter__.return_value = res2
+        res2.read.return_value = json.dumps({"rabbitmq_version": "3.12.0"}).encode()
+        res2.status = 200
+        
+        mock_urlopen.side_effect = [res1, res2]
+        
+        f = io.StringIO()
+        with redirect_stdout(f):
+            manage_queues.grow_members("rabbit@remote1")
+        output = f.getvalue()
+        
+        # Verify that subprocess.run was NOT called (no docker exec)
+        mock_run.assert_not_called()
+        self.assertIn("CLI fallback is only supported for local environments", output)
+        self.assertIn("Target host '10.0.0.5' is remote", output)
+
 if __name__ == "__main__":
     unittest.main()
