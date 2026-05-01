@@ -1,0 +1,24 @@
+[tool.black]
+line-length = 88
+target-version = ['py39']
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+fix = true
+
+[tool.ruff.lint]
+# E: pycodestyle, F: Pyflakes, I: isort, N: pep8-naming, S: flake8-bandit (security), UP: pyupgrade
+select = ["E", "F", "I", "N", "S", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["src/tests"]
+python_files = "test_*.py"

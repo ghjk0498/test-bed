@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  rabbit1:
+    image: rabbitmq:3.9.13-management
+    container_name: rabbit1
+    hostname: rabbit1
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_ERLANG_COOKIE=secret_cookie_value
+    volumes:
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    networks:
+      - rabbit-net
+
+  rabbit2:
+    image: rabbitmq:3.9.13-management
+    container_name: rabbit2
+    hostname: rabbit2
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    environment:
+      - RABBITMQ_ERLANG_COOKIE=secret_cookie_value
+    volumes:
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    networks:
+      - rabbit-net
+
+  rabbit3:
+    image: rabbitmq:3.9.13-management
+    container_name: rabbit3
+    hostname: rabbit3
+    ports:
+      - "5674:5672"
+      - "15674:15672"
+    environment:
+      - RABBITMQ_ERLANG_COOKIE=secret_cookie_value
+    volumes:
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    networks:
+      - rabbit-net
+
+networks:
+  rabbit-net:
+    driver: bridge
