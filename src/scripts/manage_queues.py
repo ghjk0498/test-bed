@@ -217,6 +217,13 @@ def rebalance_queues() -> None:
 
 def grow_members(node: str) -> None:
     """Add a node as a member to all quorum queues (Hybrid: API or CLI)."""
+    # 1. Validate node existence first
+    all_nodes = get_cluster_nodes()
+    if node not in all_nodes:
+        print(f"Error: Node '{node}' is not a member of the cluster.")
+        print(f"Available nodes: {', '.join(all_nodes)}")
+        return
+
     version = get_rabbitmq_version()
     if is_api_supported(version):
         print(f"Using HTTP API for 'grow' (RabbitMQ {version})")
@@ -235,21 +242,39 @@ def grow_members(node: str) -> None:
         try:
             # Note: Using rabbit1 as the entry point for docker exec
             cmd = ["docker", "exec", "rabbit1", "rabbitmq-queues", "grow", node, "all"]
-            subprocess.run(cmd, check=True)  # noqa: S603
-            print(f"Successfully executed grow on node {node} via CLI.")
+            result = subprocess.run(  # noqa: S603
+                cmd, capture_output=True, text=True, check=False
+            )
+
+            # Check for various failure patterns in output
+            output = (result.stdout + result.stderr).lower()
+            if result.returncode == 0 and not any(
+                x in output for x in ["error", "failed", "unable", "invalid"]
+            ):
+                print(f"Successfully executed grow on node {node} via CLI.")
+            else:
+                error_msg = result.stderr or result.stdout or "Unknown error"
+                print(f"Failed to grow on node {node} via CLI:\n{error_msg}")
         except Exception as e:
-            print(f"Error during CLI grow: {e}")
+            print(f"Error executing CLI grow: {e}")
 
 
 def shrink_members(node: str) -> None:
     """Remove a node from all quorum queues (Hybrid: API or CLI)."""
+    # 1. Validate node existence first
+    all_nodes = get_cluster_nodes()
+    if node not in all_nodes:
+        print(f"Error: Node '{node}' is not a member of the cluster.")
+        print(f"Available nodes: {', '.join(all_nodes)}")
+        return
+
     version = get_rabbitmq_version()
     if is_api_supported(version):
         print(f"Using HTTP API for 'shrink' (RabbitMQ {version})")
         url = f"{RABBIT_URL}/api/queues/quorum/replicas/on/{node}/shrink"
-        req = urllib.request.Request(
+        req = urllib.request.Request(  # noqa: S310
             url, headers=HEADERS, method="DELETE"
-        )  # noqa: S310
+        )
         try:
             with urllib.request.urlopen(req) as res:  # noqa: S310
                 if res.status in (200, 201, 204):
@@ -262,10 +287,20 @@ def shrink_members(node: str) -> None:
         print(f"Falling back to CLI for 'shrink' (RabbitMQ {version or 'unknown'})")
         try:
             cmd = ["docker", "exec", "rabbit1", "rabbitmq-queues", "shrink", node]
-            subprocess.run(cmd, check=True)  # noqa: S603
-            print(f"Successfully executed shrink on node {node} via CLI.")
+            result = subprocess.run(  # noqa: S603
+                cmd, capture_output=True, text=True, check=False
+            )
+
+            output = (result.stdout + result.stderr).lower()
+            if result.returncode == 0 and not any(
+                x in output for x in ["error", "failed", "unable", "invalid"]
+            ):
+                print(f"Successfully executed shrink on node {node} via CLI.")
+            else:
+                error_msg = result.stderr or result.stdout or "Unknown error"
+                print(f"Failed to shrink on node {node} via CLI:\n{error_msg}")
         except Exception as e:
-            print(f"Error during CLI shrink: {e}")
+            print(f"Error executing CLI shrink: {e}")
 
 
 def check_queue_distribution() -> None:
@@ -275,11 +310,220 @@ def check_queue_distribution() -> None:
     print_distribution(dist)
 
 
+def check_queue_details(limit: int = 10) -> None:
+    """Fetch and print detailed status of individual queues."""
+    print(f"Fetching details for top {limit} queues...\n")
+    url = f"{RABBIT_URL}/api/queues"
+    if not url.startswith("http"):
+        return
+
+    req = urllib.request.Request(url, headers=HEADERS)  # noqa: S310
+    try:
+        with urllib.request.urlopen(req) as res:  # noqa: S310
+            queues = json.loads(res.read().decode("utf-8"))
+            if not queues:
+                print("No queues found.")
+                return
+
+            print(
+                f"{'Queue Name':<15} | {'Msg':>5} | {'Ready':>5} | {'Unack':>5} | "
+                f"{'Status':<8} | {'Leader':<15} | {'Sync Replicas'}"
+            )
+            print("-" * 90)
+
+            # Sort by message count descending
+            queues.sort(key=lambda x: x.get("messages", 0), reverse=True)
+
+            for q in queues[:limit]:
+                name = q.get("name", "Unknown")
+                msgs = q.get("messages", 0)
+                ready = q.get("messages_ready", 0)
+                unack = q.get("messages_unacknowledged", 0)
+                state = q.get("state", "unknown")
+                leader = q.get("node", "None")
+
+                # Quorum queue specific: synchronized replicas
+                sync = q.get("synchronised_slave_nodes", [])
+                sync_str = ", ".join(sync) if sync else "N/A"
+
+                print(
+                    f"{name:<15} | {msgs:>5} | {ready:>5} | {unack:>5} | "
+                    f"{state:<8} | {leader:<15} | {sync_str}"
+                )
+
+            if len(queues) > limit:
+                print(f"\n... and {len(queues) - limit} more queues.")
+    except Exception as e:
+        print(f"Error fetching queue details: {e}")
+
+
+def check_queue_summary() -> None:
+    """Print a high-level summary of all queues (types, states, total messages)."""
+    print("Fetching queue summary...\n")
+    url = f"{RABBIT_URL}/api/queues"
+    if not url.startswith("http"):
+        return
+
+    req = urllib.request.Request(url, headers=HEADERS)  # noqa: S310
+    try:
+        with urllib.request.urlopen(req) as res:  # noqa: S310
+            queues = json.loads(res.read().decode("utf-8"))
+            if not queues:
+                print("No queues found.")
+                return
+
+            total_queues = len(queues)
+            types: dict[str, int] = {}
+            states: dict[str, int] = {}
+            replica_counts: dict[int, int] = {}
+            at_risk_queues = 0
+            total_msgs = 0
+            total_ready = 0
+            total_unack = 0
+
+            for q in queues:
+                # Type (quorum, classic, etc.)
+                q_type = q.get("type", "classic")
+                types[q_type] = types.get(q_type, 0) + 1
+
+                # State (running, idle, etc.)
+                q_state = q.get("state", "unknown")
+                states[q_state] = states.get(q_state, 0) + 1
+
+                # Replica Count (Quorum specific)
+                # For quorum queues, members are in 'members' or 'synchronised_slave_nodes' + leader
+                members = q.get("members", [])
+                r_count = len(members)
+                if r_count > 0:
+                    replica_counts[r_count] = replica_counts.get(r_count, 0) + 1
+                    # Risk assessment: Quorum queues should have at least 3 nodes and ideally odd number
+                    if r_count < 3 or r_count % 2 == 0:
+                        at_risk_queues += 1
+
+                # Messages
+                total_msgs += q.get("messages", 0)
+                total_ready += q.get("messages_ready", 0)
+                total_unack += q.get("messages_unacknowledged", 0)
+
+            print(f"Total Queues: {total_queues}")
+            print("-" * 30)
+            print("By Type:")
+            for t, count in types.items():
+                print(f"  - {t:<10}: {count}")
+
+            print("\nBy State:")
+            for s, count in states.items():
+                print(f"  - {s:<10}: {count}")
+
+            print("\nReplica Distribution (Quorum):")
+            if not replica_counts:
+                print("  - No quorum data available.")
+            else:
+                for rc, count in sorted(replica_counts.items()):
+                    risk_note = " (Low Redundancy!)" if rc < 3 else ""
+                    if rc % 2 == 0:
+                        risk_note += " (Even Number - Not Optimal)"
+                    print(f"  - {rc} replicas: {count} queues{risk_note}")
+                
+                if at_risk_queues > 0:
+                    print(f"\n  [!] WARNING: {at_risk_queues} queues have sub-optimal replica counts.")
+
+            print("\nMessage Totals:")
+            print(f"  - Total      : {total_msgs}")
+            print(f"  - Ready      : {total_ready}")
+            print(f"  - Unack      : {total_unack}")
+            
+            if total_queues > 0:
+                print(f"\nAverages:")
+                print(f"  - Msgs/Queue : {total_msgs / total_queues:.2f}")
+
+    except Exception as e:
+        print(f"Error fetching queue summary: {e}")
+
+
+def check_system_status() -> None:
+    """Check and print the overall health and status of the RabbitMQ cluster."""
+    print("Fetching RabbitMQ system status...\n")
+
+    url = f"{RABBIT_URL}/api/overview"
+    if not url.startswith("http"):
+        return
+
+    req = urllib.request.Request(url, headers=HEADERS)  # noqa: S310
+    try:
+        with urllib.request.urlopen(req) as res:  # noqa: S310
+            overview = json.loads(res.read().decode("utf-8"))
+            version = overview.get("rabbitmq_version", "Unknown")
+            cluster_name = overview.get("cluster_name", "Unknown")
+
+            queue_totals = overview.get("queue_totals", {})
+            total_messages = queue_totals.get("messages", 0)
+
+            object_totals = overview.get("object_totals", {})
+            total_queues = object_totals.get("queues", 0)
+            total_connections = object_totals.get("connections", 0)
+            total_channels = object_totals.get("channels", 0)
+
+            print(f"Cluster Name:      {cluster_name}")
+            print(f"RabbitMQ Version:  {version}")
+            print(f"Total Queues:      {total_queues}")
+            print(f"Total Connections: {total_connections}")
+            print(f"Total Channels:    {total_channels}")
+            print(f"Total Messages:    {total_messages}\n")
+
+    except Exception as e:
+        print(f"Error fetching cluster overview: {e}")
+        return
+
+    # Fetch individual node statuses
+    nodes_url = f"{RABBIT_URL}/api/nodes"
+    req_nodes = urllib.request.Request(nodes_url, headers=HEADERS)  # noqa: S310
+    try:
+        with urllib.request.urlopen(req_nodes) as res:  # noqa: S310
+            nodes = json.loads(res.read().decode("utf-8"))
+            print(
+                f"{'Node Name':<20} | {'Status':<10} | {'Alarms':<15} | "
+                f"{'Memory (MB)':<15} | {'Disk Free (MB)':<15}"
+            )
+            print("-" * 85)
+            for node in nodes:
+                name = node.get("name", "Unknown")
+                running = node.get("running", False)
+                status = "Running" if running else "Down"
+
+                # Check alarms
+                alarms = node.get("alarms", [])
+                alarms_str = ", ".join(alarms) if alarms else "OK"
+
+                # Memory (convert bytes to MB)
+                mem_used = node.get("mem_used", 0) / (1024 * 1024)
+
+                # Disk Free (convert bytes to MB)
+                disk_free = node.get("disk_free", 0) / (1024 * 1024)
+
+                print(
+                    f"{name:<20} | {status:<10} | {alarms_str:<15} | "
+                    f"{mem_used:<15.2f} | {disk_free:<15.2f}"
+                )
+    except Exception as e:
+        print(f"Error fetching nodes status: {e}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="RabbitMQ Fast Management Script")
     parser.add_argument(
         "action",
-        choices=["create", "delete", "rebalance", "dist", "grow", "shrink"],
+        choices=[
+            "create",
+            "delete",
+            "rebalance",
+            "dist",
+            "grow",
+            "shrink",
+            "status",
+            "queue-status",
+            "queue-summary",
+        ],
         help="Action to perform",
     )
     parser.add_argument(
@@ -302,3 +546,9 @@ if __name__ == "__main__":
         grow_members(args.node)
     elif args.action == "shrink":
         shrink_members(args.node)
+    elif args.action == "status":
+        check_system_status()
+    elif args.action == "queue-status":
+        check_queue_details(args.n)
+    elif args.action == "queue-summary":
+        check_queue_summary()

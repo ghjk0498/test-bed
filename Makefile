@@ -16,7 +16,7 @@ down:
 	docker-compose down
 
 status:
-	docker exec rabbit1 rabbitmqctl cluster_status
+	python src/scripts/manage_queues.py status
 
 clean:
 	docker-compose down -v
@@ -40,6 +40,16 @@ rebalance:
 # 큐 리더 노드 분포 확인
 dist:
 	python src/scripts/manage_queues.py dist
+
+# 개별 큐 상세 상태 확인
+# 사용법: make queue-status N=10 (상위 10개 출력)
+queue-status:
+	@powershell -Command "$$n = if ('$(N)') { $(N) } else { 10 }; \
+		python src/scripts/manage_queues.py queue-status --n $$n"
+
+# 큐 전체 요약 정보 확인
+queue-summary:
+	python src/scripts/manage_queues.py queue-summary
 
 # 기존 타겟 유지 (하위 호환성)
 create-queues: create
