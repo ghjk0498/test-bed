@@ -1,4 +1,4 @@
-from src.scripts.manage_queues import (
+from src.rabbitmq.manage_queues import (
     generate_definitions,
     is_api_supported,
     is_balanced,
@@ -41,4 +41,3 @@ def test_is_api_supported_logic() -> None:
     assert is_api_supported("2.8.0") is False  # noqa: S101
     assert is_api_supported("") is False  # noqa: S101
     assert is_api_supported("unknown") is False  # noqa: S101
-

@@ -657,7 +657,9 @@ def test_connection() -> None:
             print(f"[OK] Authentication: Connected as '{user_name}'")
             print(f"     Tags: {', '.join(tags)}")
             if "administrator" not in tags:
-                print("     [!] Warning: User is not an administrator. Some actions may fail.")
+                print(
+                    "     [!] Warning: User is not an administrator. Some actions may fail."
+                )
     except Exception as e:
         print(f"[FAIL] Authentication: {e}")
         success = False

@@ -23,7 +23,7 @@
   1. `.env.example` 파일을 `.env`로 복사합니다.
   2. `.env` 파일 내의 값을 운영 환경에 맞게 수정합니다.
   3. 스크립트 실행 시 자동으로 `.env` 파일을 로드합니다.
-- **실행**: 설정 후 `python src/scripts/manage_queues.py test-connection`을 실행하여 연결을 확인합니다.
+- **실행**: 설정 후 `python src/rabbitmq/manage_queues.py test-connection`을 실행하여 연결을 확인합니다.
 
 ---
 
@@ -32,9 +32,9 @@
 
 | 점검 항목 | 로컬/테스트 (Makefile) | 운영 환경 (직접 실행) |
 | :--- | :--- | :--- |
-| **클러스터 상태** | `make status` | `python src/scripts/manage_queues.py status` |
-| **큐 안전성 요약** | `make queue-summary` | `python src/scripts/manage_queues.py queue-summary` |
-| **리더 분산 확인** | `make dist` | `python src/scripts/manage_queues.py dist` |
+| **클러스터 상태** | `make status` | `python src/rabbitmq/manage_queues.py status` |
+| **큐 안전성 요약** | `make queue-summary` | `python src/rabbitmq/manage_queues.py queue-summary` |
+| **리더 분산 확인** | `make dist` | `python src/rabbitmq/manage_queues.py dist` |
 
 ---
 
@@ -43,7 +43,7 @@
 ### 상황 A: 특정 노드에 리더가 쏠려 있는 경우 (불균형)
 - **조치**: 
   1. **로컬**: `make rebalance` 실행.
-  2. **운영**: `python src/scripts/manage_queues.py rebalance` 실행.
+  2. **운영**: `python src/rabbitmq/manage_queues.py rebalance` 실행.
   3. 분산 후 다시 `dist` 명령으로 결과를 확인합니다.
 
 ### 상황 B: 노드 장애 (Node Down) 발생 시
@@ -60,7 +60,7 @@
 - **조치**:
   1. **멤버 추가**:
      - **로컬**: `make grow NODE=rabbit@<대상노드>`
-     - **운영**: `python src/scripts/manage_queues.py grow --node rabbit@<대상노드>`
+     - **운영**: `python src/rabbitmq/manage_queues.py grow --node rabbit@<대상노드>`
      - *(참고: 운영 환경은 RabbitMQ 3.13+ API가 필요합니다. 구버전은 서버에서 직접 CLI 실행)*
 
 ### 상황 D: 리소스 알람 (Memory/Disk Alarm)
@@ -83,7 +83,7 @@
 
 ### 4.1. 정의(Definitions) 백업 및 복구
 - **로컬**: `make backup-defs FILE=backup.json`
-- **운영**: `python src/scripts/manage_queues.py export-defs --file backup.json`
+- **운영**: `python src/rabbitmq/manage_queues.py export-defs --file backup.json`
 
 ### 4.2. 전체 데이터(Full Data) 백업 및 복구
 - **주의**: 이 작업은 컨테이너 또는 서비스를 일시 중지해야 합니다.
@@ -123,7 +123,7 @@ API로 확인되지 않는 깊은 문제는 운영 서버에 직접 접속하여
 `~/.bashrc` 또는 `~/.zshrc`에 추가:
 ```bash
 # RabbitMQ 관리 도구 별칭
-alias rmq='python3 /path/to/src/scripts/manage_queues.py'
+alias rmq='python3 /path/to/src/rabbitmq/manage_queues.py'
 alias rmq-status='rmq status'
 alias rmq-test='rmq test-connection'
 ```
@@ -131,6 +131,6 @@ alias rmq-test='rmq test-connection'
 ### Windows (PowerShell)
 `$PROFILE`에 추가:
 ```powershell
-function rmq { python src/scripts/manage_queues.py @args }
+function rmq { python src/rabbitmq/manage_queues.py @args }
 function rmq-status { rmq status }
 ```
