@@ -155,7 +155,4 @@ cython_debug/
 
 # Project specific
 .ruff_cache/
-.gemini/
-GEMINI_*.md
-MEMORY.md
 /data/
